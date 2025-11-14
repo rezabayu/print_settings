@@ -35,15 +35,3 @@ Use case utama: ketika Anda memiliki puluhan/ ratusan file Excel dengan struktur
 - Macro di-enable (centang `Enable all macros` atau izinkan macro saat membuka file).
 
 ---
-
-## Struktur Repositori
-
-> Sesuaikan nama file di bawah ini dengan isi repo Anda yang sebenarnya.
-
-Contoh:
-
-```text
-.
-├── README.md
-├── FORMAT EXCEL.xlsx          # Contoh file Excel dengan 4 sheet
-└── BatchPrintSettings.xlsm    # Workbook berisi macro VBA BatchSetPrintSettings
