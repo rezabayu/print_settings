@@ -1,0 +1,156 @@
+Option Explicit
+
+' === Fungsi bantu: cek apakah sebuah cell punya border ===
+Private Function CellHasBorder(ByVal c As Range) As Boolean
+    On Error Resume Next
+    Dim b As Variant
+    For Each b In Array(xlEdgeLeft, xlEdgeTop, xlEdgeBottom, xlEdgeRight, _
+                        xlInsideVertical, xlInsideHorizontal)
+        If c.Borders(b).LineStyle <> xlLineStyleNone Then
+            CellHasBorder = True
+            Exit Function
+        End If
+    Next b
+End Function
+
+' === Fungsi bantu: cari alamat print area dari A1 sampai sel ber-border terjauh ===
+Private Function GetBorderPrintAreaAddress(ws As Worksheet) As String
+    Dim ur As Range
+    Dim r As Range
+    Dim lastRow As Long, lastCol As Long
+    
+    On Error Resume Next
+    Set ur = ws.UsedRange
+    On Error GoTo 0
+    
+    If ur Is Nothing Then
+        GetBorderPrintAreaAddress = ""
+        Exit Function
+    End If
+    
+    lastRow = 0
+    lastCol = 0
+    
+    ' Cari baris & kolom terbesar yang punya border
+    For Each r In ur
+        If CellHasBorder(r) Then
+            If r.Row > lastRow Then lastRow = r.Row
+            If r.Column > lastCol Then lastCol = r.Column
+        End If
+    Next r
+    
+    ' Kalau tidak ada sel ber-border, fallback ke UsedRange
+    If lastRow = 0 Or lastCol = 0 Then
+        lastRow = ur.Row + ur.Rows.Count - 1
+        lastCol = ur.Column + ur.Columns.Count - 1
+    End If
+    
+    ' Asumsi mulai dari A1
+    GetBorderPrintAreaAddress = ws.Range("A1", ws.Cells(lastRow, lastCol)).Address
+End Function
+
+' === Terapkan pengaturan print ke satu sheet ===
+Private Sub ApplyPrintSettingsToSheet(ws As Worksheet, ByVal isLandscape As Boolean)
+    Dim ps As PageSetup
+    Dim printAreaAddr As String
+    
+    Set ps = ws.PageSetup
+    
+    ' Tentukan orientasi
+    If isLandscape Then
+        ps.Orientation = xlLandscape
+    Else
+        ps.Orientation = xlPortrait
+    End If
+    
+    ' Ukuran kertas A4
+    ps.PaperSize = xlPaperA4
+    
+    ' Margin dalam cm -> diubah ke points
+    ps.TopMargin = Application.CentimetersToPoints(1.91)
+    ps.BottomMargin = Application.CentimetersToPoints(1.91)
+    ps.LeftMargin = Application.CentimetersToPoints(1.76)
+    ps.RightMargin = Application.CentimetersToPoints(1.76)
+    
+    ' Fit to 1 page wide (tinggi bebas)
+    ps.Zoom = False
+    ps.FitToPagesWide = 1
+    ps.FitToPagesTall = False   '  False => tidak dipaksa 1 page tinggi
+    
+    ' Center on page: Horizontal
+    ps.CenterHorizontally = True
+    ps.CenterVertically = False
+    
+    ' Print area: dari A1 sampai area yang punya border
+    printAreaAddr = GetBorderPrintAreaAddress(ws)
+    If printAreaAddr <> "" Then
+        ws.PageSetup.PrintArea = printAreaAddr
+    Else
+        ' kalau gagal deteksi, abaikan saja (pakai default)
+        ws.PageSetup.PrintArea = ""
+    End If
+End Sub
+
+' === Macro utama: terapkan ke semua file di folder ===
+Public Sub BatchSetPrintSettings()
+    Dim folderPath As String
+    Dim fd As FileDialog
+    Dim fName As String
+    Dim wb As Workbook
+    Dim ws As Worksheet
+    Dim i As Long
+    Dim maxSheets As Long
+    
+    ' Pilih folder
+    Set fd = Application.FileDialog(msoFileDialogFolderPicker)
+    With fd
+        .Title = "Pilih folder yang berisi file Excel"
+        If .Show <> -1 Then
+            MsgBox "Dibatalkan.", vbInformation
+            Exit Sub
+        End If
+        folderPath = .SelectedItems(1)
+    End With
+    
+    If Right(folderPath, 1) <> "\" Then
+        folderPath = folderPath & "\"
+    End If
+    
+    Application.ScreenUpdating = False
+    Application.DisplayAlerts = False
+    
+    ' Loop semua file Excel di folder
+    fName = Dir(folderPath & "*.xls*")
+    Do While fName <> ""
+        ' Jangan proses workbook macro ini sendiri kalau berada di folder yang sama
+        If ThisWorkbook.FullName <> folderPath & fName Then
+            Set wb = Workbooks.Open(folderPath & fName, UpdateLinks:=False)
+            
+            ' Pastikan hanya sampai 4 sheet (atau kurang jika file punya <4 sheet)
+            maxSheets = wb.Worksheets.Count
+            If maxSheets > 4 Then maxSheets = 4
+            
+            For i = 1 To maxSheets
+                Set ws = wb.Worksheets(i)
+                
+                ' Sheet 1,2,3 Portrait; Sheet 4 Landscape
+                If i = 4 Then
+                    Call ApplyPrintSettingsToSheet(ws, True)   ' Landscape
+                Else
+                    Call ApplyPrintSettingsToSheet(ws, False)  ' Portrait
+                End If
+            Next i
+            
+            wb.Save
+            wb.Close
+        End If
+        
+        fName = Dir()
+    Loop
+    
+    Application.DisplayAlerts = True
+    Application.ScreenUpdating = True
+    
+    MsgBox "Selesai memperbarui pengaturan print untuk semua file di folder." & vbCrLf & folderPath, _
+           vbInformation
+End Sub
