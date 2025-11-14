@@ -50,13 +50,15 @@ Private Function GetBorderPrintAreaAddress(ws As Worksheet) As String
 End Function
 
 ' === Terapkan pengaturan print ke satu sheet ===
+'   - isLandscape = True  -> Landscape
+'   - isLandscape = False -> Portrait
 Private Sub ApplyPrintSettingsToSheet(ws As Worksheet, ByVal isLandscape As Boolean)
     Dim ps As PageSetup
     Dim printAreaAddr As String
     
     Set ps = ws.PageSetup
     
-    ' Tentukan orientasi
+    ' Orientasi
     If isLandscape Then
         ps.Orientation = xlLandscape
     Else
@@ -75,9 +77,9 @@ Private Sub ApplyPrintSettingsToSheet(ws As Worksheet, ByVal isLandscape As Bool
     ' Fit to 1 page wide (tinggi bebas)
     ps.Zoom = False
     ps.FitToPagesWide = 1
-    ps.FitToPagesTall = False   '  False => tidak dipaksa 1 page tinggi
+    ps.FitToPagesTall = False   ' False => tidak dipaksa 1 page tinggi
     
-    ' Center on page: Horizontal
+    ' Center on page: Horizontal saja
     ps.CenterHorizontally = True
     ps.CenterVertically = False
     
@@ -86,12 +88,12 @@ Private Sub ApplyPrintSettingsToSheet(ws As Worksheet, ByVal isLandscape As Bool
     If printAreaAddr <> "" Then
         ws.PageSetup.PrintArea = printAreaAddr
     Else
-        ' kalau gagal deteksi, abaikan saja (pakai default)
+        ' kalau gagal deteksi, abaikan (biarkan default)
         ws.PageSetup.PrintArea = ""
     End If
 End Sub
 
-' === Macro utama: terapkan ke semua file di folder ===
+' === Macro 1: hanya set print settings untuk semua file di folder ===
 Public Sub BatchSetPrintSettings()
     Dim folderPath As String
     Dim fd As FileDialog
@@ -101,7 +103,7 @@ Public Sub BatchSetPrintSettings()
     Dim i As Long
     Dim maxSheets As Long
     
-    ' Pilih folder
+    ' Pilih folder yang berisi file Excel
     Set fd = Application.FileDialog(msoFileDialogFolderPicker)
     With fd
         .Title = "Pilih folder yang berisi file Excel"
@@ -122,11 +124,11 @@ Public Sub BatchSetPrintSettings()
     ' Loop semua file Excel di folder
     fName = Dir(folderPath & "*.xls*")
     Do While fName <> ""
-        ' Jangan proses workbook macro ini sendiri kalau berada di folder yang sama
+        ' Jangan proses workbook macro ini sendiri kalau di folder yang sama
         If ThisWorkbook.FullName <> folderPath & fName Then
             Set wb = Workbooks.Open(folderPath & fName, UpdateLinks:=False)
             
-            ' Pastikan hanya sampai 4 sheet (atau kurang jika file punya <4 sheet)
+            ' Atur sampai 4 sheet pertama (atau kurang kalau sheet-nya <4)
             maxSheets = wb.Worksheets.Count
             If maxSheets > 4 Then maxSheets = 4
             
@@ -135,9 +137,9 @@ Public Sub BatchSetPrintSettings()
                 
                 ' Sheet 1,2,3 Portrait; Sheet 4 Landscape
                 If i = 4 Then
-                    Call ApplyPrintSettingsToSheet(ws, True)   ' Landscape
+                    ApplyPrintSettingsToSheet ws, True   ' Landscape
                 Else
-                    Call ApplyPrintSettingsToSheet(ws, False)  ' Portrait
+                    ApplyPrintSettingsToSheet ws, False  ' Portrait
                 End If
             Next i
             
@@ -151,6 +153,96 @@ Public Sub BatchSetPrintSettings()
     Application.DisplayAlerts = True
     Application.ScreenUpdating = True
     
-    MsgBox "Selesai memperbarui pengaturan print untuk semua file di folder." & vbCrLf & folderPath, _
-           vbInformation
+    MsgBox "Selesai memperbarui pengaturan print untuk semua file di folder:" & vbCrLf & _
+           folderPath, vbInformation
+End Sub
+
+' === Macro 2: set print settings + export ke PDF untuk setiap file ===
+Public Sub BatchSetPrintSettingsAndPDF()
+    Dim folderPath As String
+    Dim pdfFolderPath As String
+    Dim fd As FileDialog
+    Dim fName As String
+    Dim wb As Workbook
+    Dim ws As Worksheet
+    Dim i As Long
+    Dim maxSheets As Long
+    Dim pdfName As String
+    
+    ' Pilih folder yang berisi file Excel
+    Set fd = Application.FileDialog(msoFileDialogFolderPicker)
+    With fd
+        .Title = "Pilih folder yang berisi file Excel"
+        If .Show <> -1 Then
+            MsgBox "Dibatalkan.", vbInformation
+            Exit Sub
+        End If
+        folderPath = .SelectedItems(1)
+    End With
+    
+    If Right(folderPath, 1) <> "\" Then
+        folderPath = folderPath & "\"
+    End If
+    
+    ' Buat subfolder PDF jika belum ada
+    pdfFolderPath = folderPath & "PDF\"
+    If Dir(pdfFolderPath, vbDirectory) = "" Then
+        MkDir pdfFolderPath
+    End If
+    
+    Application.ScreenUpdating = False
+    Application.DisplayAlerts = False
+    
+    ' Loop semua file Excel di folder
+    fName = Dir(folderPath & "*.xls*")
+    Do While fName <> ""
+        ' Jangan proses workbook macro ini sendiri kalau di folder yang sama
+        If ThisWorkbook.FullName <> folderPath & fName Then
+            Set wb = Workbooks.Open(folderPath & fName, UpdateLinks:=False)
+            
+            ' Atur sampai 4 sheet pertama (atau kurang kalau sheet-nya <4)
+            maxSheets = wb.Worksheets.Count
+            If maxSheets > 4 Then maxSheets = 4
+            
+            For i = 1 To maxSheets
+                Set ws = wb.Worksheets(i)
+                
+                ' Sheet 1,2,3 Portrait; Sheet 4 Landscape
+                If i = 4 Then
+                    ApplyPrintSettingsToSheet ws, True   ' Landscape
+                Else
+                    ApplyPrintSettingsToSheet ws, False  ' Portrait
+                End If
+            Next i
+            
+            ' Tentukan nama file PDF: sama dengan nama Excel, beda ekstensi
+            If InStrRev(fName, ".") > 0 Then
+                pdfName = Left(fName, InStrRev(fName, ".") - 1) & ".pdf"
+            Else
+                pdfName = fName & ".pdf"
+            End If
+            
+            ' Export seluruh workbook ke PDF
+            On Error Resume Next
+            wb.ExportAsFixedFormat Type:=xlTypePDF, _
+                                   Filename:=pdfFolderPath & pdfName, _
+                                   Quality:=xlQualityStandard, _
+                                   IncludeDocProperties:=True, _
+                                   IgnorePrintAreas:=False, _
+                                   OpenAfterPublish:=False
+            On Error GoTo 0
+            
+            wb.Save
+            wb.Close
+        End If
+        
+        fName = Dir()
+    Loop
+    
+    Application.DisplayAlerts = True
+    Application.ScreenUpdating = True
+    
+    MsgBox "Selesai set print settings dan ekspor PDF." & vbCrLf & _
+           "Folder Excel : " & folderPath & vbCrLf & _
+           "Folder PDF   : " & pdfFolderPath, vbInformation
 End Sub
